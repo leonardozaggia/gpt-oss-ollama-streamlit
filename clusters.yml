@@ -1,0 +1,18 @@
+clusters:
+  rosa:
+    host: rosa.hpc.uni-oldenburg.de
+    user: maku1542
+    ssh_key: ~/.ssh/id_ed25519
+    default_partition: rosa.p
+    default_ntasks: 1
+    default_cpus_per_task: 4
+    default_time: "02:00:00"
+    account: ""
+    mem: ""
+    gpus: ""
+    pre_commands:
+      - 'module purge'
+      - 'module load hpc-env/13.1'
+      - 'module load Miniforge3/25.3.0-3'
+      - 'module load ollama/0.9.2-GCCcore-13.1.0-CUDA-12.9.1'
+      - 'conda activate llm'

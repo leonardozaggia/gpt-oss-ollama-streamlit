@@ -138,4 +138,17 @@ privacy, and transparency. You can easily extend the app by modifying
 
 Enjoy building with GPT-OSS!
 
+----------------------------------------------------------------------
+9. Cluster Usage Examples
+----------------------------------------------------------------------
+
+Local:
+    python main_cluster.py -- echo "hello"
+
+Cluster non-interactive:
+    python main_cluster.py --cluster rosa --partition rosa.p --time 01:00:00 -- python main.py --foo bar
+
+Cluster interactive:
+    python main_cluster.py --cluster rosa --interactive
+    
 """
