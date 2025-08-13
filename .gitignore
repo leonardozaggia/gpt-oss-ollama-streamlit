@@ -1,0 +1,29 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Test & type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Jupyter/Streamlit/editor misc
+.ipynb_checkpoints/
+.streamlit/
+.vscode/
+.idea/
+.DS_Store
