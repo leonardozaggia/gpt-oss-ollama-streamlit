@@ -3,99 +3,81 @@ from typing import Dict, List
 from utility import call_model, parse_reasoning_response
 
 def main():
-    # ---------------- Streamlit App ----------------
+    st.set_page_config(page_title="GPT-OSS • Local Chat (Ollama)", layout="wide", page_icon="💬")
 
-    st.set_page_config(page_title="GPT-OSS Chat Demo", layout="wide", page_icon="💬")
-
-    # Lightweight styling
+    # Styles
     st.markdown(
         """
     <style>
-    .reasoning-box {
-        background: rgba(0, 212, 170, 0.06);
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #00d4aa;
-    }
-    .answer-box {
-        background: rgba(0, 123, 255, 0.06);
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #007bff;
-    }
-    .metric-card {
-        background: rgba(0,0,0,0.03);
-        padding: 0.75rem 1rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        text-align: left;
-    }
-    .chat-message {
-        background: rgba(0,0,0,0.03);
-        padding: 0.6rem 0.8rem;
-        border-radius: 10px;
-        margin-bottom: 0.35rem;
-    }
-    .user-message {
-        border-left: 4px solid #2196f3;
-    }
-    .assistant-message {
-        border-left: 4px solid #9c27b0;
-    }
+    :root { --muted: rgba(0,0,0,0.04); }
+    .reasoning-box { background: rgba(0, 212, 170, 0.06); padding: 1rem; border-radius: 12px; border-left: 4px solid #00d4aa; }
+    .answer-box { background: rgba(0, 123, 255, 0.06); padding: 1rem; border-radius: 12px; border-left: 4px solid #007bff; }
+    .metric-card { background: var(--muted); padding: 0.75rem 1rem; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    .chat-message { background: var(--muted); padding: 0.6rem 0.8rem; border-radius: 10px; margin-bottom: 0.35rem; }
+    .user-message { border-left: 4px solid #2196f3; }
+    .assistant-message { border-left: 4px solid #9c27b0; }
+    .badge { display:inline-block; padding: .15rem .5rem; border-radius: 999px; background: var(--muted); margin-right:.25rem; font-size:.85em;}
     </style>
     """,
         unsafe_allow_html=True
     )
 
-    # Initialize history
+    # State
     if "history" not in st.session_state:
         st.session_state.history = []
+    if "model_name" not in st.session_state:
+        st.session_state.model_name = "gpt-oss:20b"
 
-    # Sidebar — configuration
+
     with st.sidebar:
         st.header("Configuration")
+        st.caption("Choose any Ollama model. Works with OSS models that **don't emit reasoning** as well.")
 
-        model_choice = st.selectbox(
-            "Model",
-            ["gpt-oss:20b", "gpt-oss:120b"],
-            help="Choose between 20B (faster) or 120B (more capable)",
+        preset = st.selectbox(
+            "Preset model",
+            ["gpt-oss:20b", "gpt-oss:120b", "llama3.1:8b", "phi3:latest", "qwen2.5:7b", "mistral:7b", "custom", "codellama:7b", "gemma:2b"],
+            index=0,
+            help="Pick a known model or choose 'custom' and type your own below."
+        )
+        custom = st.text_input("Custom model name (overrides preset if non-empty)", value="")
+        model_name = custom.strip() if custom.strip() else preset
+        st.session_state.model_name = model_name
+
+        # Reasoning handling
+        reasoning_mode = st.radio(
+            "Reasoning display",
+            ["Auto-detect", "Always hide"],
+            index=0,
+            help="If your model doesn't output chain-of-thought, choose 'Always hide' to skip parsing."
         )
 
-        effort = st.selectbox(
-            "Reasoning Effort",
-            ["low", "medium", "high"],
-            index=1,
-            help="Controls how much reasoning the model attempts to show",
-        )
+        effort = st.selectbox("Reasoning Effort", ["low", "medium", "high"], index=1,
+                      help="Low = concise, Medium = brief rationale, High = detailed reasoning (if model supports it)")
 
-        temperature = st.slider(
-            "Temperature",
-            0.0,
-            2.0,
-            1.0,
-            0.1,
-            help="Higher is more random; lower is more deterministic",
-        )
-
-        show_reasoning = st.checkbox(
-            "Show Reasoning (if present)",
-            True,
-            help="Display any explicit reasoning the model outputs",
-        )
-
-        show_metrics = st.checkbox(
-            "Show Performance Metrics",
-            True,
-            help="Display response time and model info",
-        )
+        temperature = st.slider("Temperature", 0.0, 2.0, 1.0, 0.1)
 
         st.markdown("---")
         if st.button("Clear Conversation"):
             st.session_state.history = []
             st.rerun()
 
-    # Main title and examples
-    st.title("💬 GPT-OSS Interactive Chat")
+    # Header
+    colA, colB = st.columns([3, 2])
+    with colA:
+        st.title("💬 Local Chat (Ollama)")
+        st.caption("Flexible model selection • Optional reasoning display • Lightweight metrics")
+    with colB:
+        st.markdown(
+            f"""
+    <div class="metric-card">
+    <div class="badge">Model</div> <strong>{st.session_state.model_name}</strong><br>
+    <div class="badge">Temp</div> {temperature} &nbsp; <div class="badge">Mode</div> {reasoning_mode}
+    </div>
+    """,
+            unsafe_allow_html=True
+        )
+
+    # Examples / Prompt
     examples = [
         "",
         "If a train travels 120 km in 1.5 hours, then 80 km in 45 minutes, what's its average speed?",
@@ -105,97 +87,80 @@ def main():
         "How would you design a recommendation system?",
     ]
 
-    selected_from_dropdown = st.selectbox("Choose from examples:", examples)
-
-    # Prefill input if a preset is chosen
-    question_value = ""
-    if hasattr(st.session_state, "selected_example"):
-        question_value = st.session_state.selected_example
-        del st.session_state.selected_example
-    elif selected_from_dropdown:
-        question_value = selected_from_dropdown
+    selected_from_dropdown = st.selectbox("Examples:", examples)
+    prefill = selected_from_dropdown if selected_from_dropdown else ""
 
     question = st.text_area(
-        "Or enter your question:",
-        value=question_value,
+        "Ask anything:",
+        value=prefill,
         height=100,
-        placeholder="Ask anything! Try different reasoning effort levels to see how the model's thinking changes...",
+        placeholder="Type a question and click 'Send'. You can switch models freely (e.g., llama3.1:8b, mistral:7b, phi3...).",
     )
 
-    # Submit
-    submit_button = st.button("Ask GPT-OSS", type="primary")
+    send = st.button("Send", type="primary")
 
-    if submit_button and question.strip():
-        system_prompts = {
-            "low": "You are a helpful assistant. Provide concise, direct answers.",
-            "medium": f"You are a helpful assistant. Show brief reasoning before your answer. Reasoning effort: {effort}.",
-            "high": f"You are a helpful assistant. Think through the problem step by step. Provide your final answer clearly. Reasoning effort: {effort}.",
-        }
+    if send and question.strip():
+        if effort == "low":
+            system_prompt = "You are a helpful assistant. Provide a concise answer. Avoid showing your reasoning unless strictly necessary."
+        elif effort == "high":
+            system_prompt = "You are a helpful assistant. Think carefully and explain your steps briefly before your final answer."
+        else:
+            system_prompt = "You are a helpful assistant. Provide a short rationale then a clear final answer."
 
-        # Build message list (keep last few turns for context)
-        msgs: List[Dict[str, str]] = [{"role": "system", "content": system_prompts[effort]}]
-        msgs.extend(st.session_state.history[-6:])
+        msgs: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        msgs.extend(st.session_state.history[-6:])  # maintain context
         msgs.append({"role": "user", "content": question})
 
-        with st.spinner(f"GPT-OSS thinking ({effort} effort)..."):
-            res = call_model(msgs, model_name=model_choice, temperature=temperature)
+        with st.spinner(f"Thinking with {st.session_state.model_name}..."):
+            res = call_model(msgs, model_name=st.session_state.model_name, temperature=temperature, effort=effort)
 
         if res["success"]:
-            parsed = parse_reasoning_response(res["content"])
             st.session_state.history.append({"role": "user", "content": question})
             st.session_state.history.append({"role": "assistant", "content": res["content"]})
 
-            if show_metrics:
+            # Metrics
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                if reasoning_mode == "Auto-detect":
+                    parsed = parse_reasoning_response(res["content"])
+                    # Show reasoning only if something meaningful detected
+                    if parsed["reasoning"] and parsed["reasoning"].strip():
+                        st.markdown("### Reasoning (detected)")
+                        st.markdown(f"<div class='reasoning-box'>{parsed['reasoning']}</div>", unsafe_allow_html=True)
+                    st.markdown("### Answer")
+                    st.markdown(f"<div class='answer-box'>{parsed['answer']}</div>", unsafe_allow_html=True)
+                else:
+                    # Always hide reasoning
+                    st.markdown("### Answer")
+                    st.markdown(f"<div class='answer-box'>{res['content']}</div>", unsafe_allow_html=True)
+            with col2:
                 st.markdown("#### Metrics")
                 st.markdown(
                     f"""
     <div class="metric-card">
     <strong>Time:</strong> {res['response_time']:.2f}s<br>
-    <strong>Model:</strong> {model_choice}<br>
-    <strong>Effort:</strong> {effort.title()}
+    <strong>Model:</strong> {st.session_state.model_name}<br>
+    <strong>Temp:</strong> {temperature}
     </div>
     """,
                     unsafe_allow_html=True,
                 )
-
-            if show_reasoning and parsed["reasoning"] != "No explicit reasoning detected.":
-                st.markdown("### Reasoning (as provided by the model)")
-                st.markdown(f"<div class='reasoning-box'>{parsed['reasoning']}</div>", unsafe_allow_html=True)
-
-            st.markdown("### Answer")
-            st.markdown(f"<div class='answer-box'>{parsed['answer']}</div>", unsafe_allow_html=True)
-
         else:
             st.error(res["content"])
 
-    # Conversation history (last few turns)
+    # Conversation history
     if st.session_state.history:
         st.markdown("---")
-        st.subheader("Conversation History")
-        recent_history = st.session_state.history[-8:]  # last 4 exchanges
-        for i, msg in enumerate(recent_history):
+        st.subheader("Conversation")
+        for msg in st.session_state.history[-8:]:
             role = msg.get("role", "")
             content = msg.get("content", "")
             if role == "user":
-                st.markdown(
-                    f"<div class='chat-message user-message'><strong>You:</strong> {content}</div>",
-                    unsafe_allow_html=True,
-                )
+                st.markdown(f"<div class='chat-message user-message'><strong>You:</strong> {content}</div>", unsafe_allow_html=True)
             elif role == "assistant":
-                parsed_hist = parse_reasoning_response(content)
-                with st.expander("Assistant Response", expanded=False):
-                    if parsed_hist["reasoning"] != "No explicit reasoning detected.":
-                        st.markdown("**Reasoning (if present):**")
-                        st.code(parsed_hist["reasoning"], language="text")
-                    st.markdown("**Final Answer:**")
-                    st.markdown(parsed_hist["answer"])
+                st.markdown(f"<div class='chat-message assistant-message'><strong>Assistant:</strong> {content}</div>", unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown(
-        "<div style='text-align:center'><strong>Powered locally via Ollama • GPT-OSS</strong></div>",
-        unsafe_allow_html=True,
-    )
-
-
+    st.markdown("<div style='text-align:center'><strong>Powered locally via Ollama</strong></div>", unsafe_allow_html=True)
 if __name__ == "__main__":
     main()
