@@ -1,9 +1,35 @@
 import streamlit as st
 from typing import Dict, List
-from utility import call_model, parse_reasoning_response
+from use_model import call_model, parse_reasoning_response
+from utility import (
+    remember_active_model,
+    shutdown_active_model,
+    register_process_shutdown,
+    cleanup_stale_from_previous_session,
+    stop_previous_if_changed,
+    maybe_stop_if_idle,
+)
+from utility import _run_ollama_stop  # optional direct call
 
 def main():
     st.set_page_config(page_title="GPT-OSS • Local Chat (Ollama)", layout="wide", page_icon="💬")
+
+    # One-time process hooks
+    register_process_shutdown()
+    # Attempt to clean any stale model left by a previous unclean shutdown
+    cleanup_stale_from_previous_session()
+
+    # Defaults & state
+    if "history" not in st.session_state:
+        st.session_state.history = []
+    if "model_name" not in st.session_state:
+        st.session_state.model_name = "gpt-oss:20b"
+    if "last_model_name" not in st.session_state:
+        st.session_state.last_model_name = None
+    if "last_interaction_ts" not in st.session_state:
+        st.session_state.last_interaction_ts = 0.0
+    if "idle_timeout_min" not in st.session_state:
+        st.session_state.idle_timeout_min = 10  # default: stop model after 10 min idle
 
     # Styles
     st.markdown(
@@ -22,16 +48,10 @@ def main():
         unsafe_allow_html=True
     )
 
-    # State
-    if "history" not in st.session_state:
-        st.session_state.history = []
-    if "model_name" not in st.session_state:
-        st.session_state.model_name = "gpt-oss:20b"
-
-
+    # Sidebar
     with st.sidebar:
         st.header("Configuration")
-        st.caption("Choose any Ollama model. Works with OSS models that **don't emit reasoning** as well.")
+        st.caption("Choose any Ollama model. Works with models that don't emit reasoning as well.")
 
         preset = st.selectbox(
             "Preset model",
@@ -41,20 +61,31 @@ def main():
         )
         custom = st.text_input("Custom model name (overrides preset if non-empty)", value="")
         model_name = custom.strip() if custom.strip() else preset
-        st.session_state.model_name = model_name
 
-        # Reasoning handling
         reasoning_mode = st.radio(
             "Reasoning display",
             ["Auto-detect", "Always hide"],
             index=0,
-            help="If your model doesn't output chain-of-thought, choose 'Always hide' to skip parsing."
+            help="If your model doesn't output chain-of-thought, choose 'Always hide'."
         )
 
         effort = st.selectbox("Reasoning Effort", ["low", "medium", "high"], index=1,
                       help="Low = concise, Medium = brief rationale, High = detailed reasoning (if model supports it)")
 
         temperature = st.slider("Temperature", 0.0, 2.0, 1.0, 0.1)
+
+        st.markdown("### Session Safety")
+        st.session_state.idle_timeout_min = st.number_input(
+            "Auto-stop after inactivity (minutes)", min_value=0, max_value=120, value=st.session_state.idle_timeout_min,
+            help="If > 0, the app will stop the active model after this many minutes of no interaction."
+        )
+        if st.button("Stop Active Model Now"):
+            # Stop the currently remembered active model (if any)
+            if st.session_state.get("model_name"):
+                _run_ollama_stop(st.session_state["model_name"])
+            # Also stop any persisted last model for safety
+            shutdown_active_model()
+            st.success("Requested model shutdown.")
 
         st.markdown("---")
         if st.button("Clear Conversation"):
@@ -65,19 +96,31 @@ def main():
     colA, colB = st.columns([3, 2])
     with colA:
         st.title("💬 Local Chat (Ollama)")
-        st.caption("Flexible model selection • Optional reasoning display • Lightweight metrics")
+        st.caption("Flexible model selection • Safe shutdown • Idle auto-stop")
     with colB:
         st.markdown(
             f"""
     <div class="metric-card">
-    <div class="badge">Model</div> <strong>{st.session_state.model_name}</strong><br>
-    <div class="badge">Temp</div> {temperature} &nbsp; <div class="badge">Mode</div> {reasoning_mode}
+    <div class="badge">Model</div> <strong>{model_name}</strong><br>
+    <div class="badge">Temp</div> {temperature} &nbsp; <div class="badge">Effort</div> {effort}
     </div>
     """,
             unsafe_allow_html=True
         )
 
-    # Examples / Prompt
+    # If model selection changed since last run, stop the previous one
+    stop_previous_if_changed(st.session_state.get("model_name"), model_name)
+    # Update state & remember active model in a persistent marker
+    st.session_state.model_name = model_name
+    remember_active_model(model_name)
+
+    # Idle auto-stop check (run each script execution)
+    idle_sec = int(st.session_state.idle_timeout_min) * 60
+    if st.session_state.last_interaction_ts:
+        if maybe_stop_if_idle(st.session_state.last_interaction_ts, idle_sec, st.session_state.model_name):
+            st.info("Model was idle and has been stopped to free resources. It will restart automatically on next prompt.")
+
+    # Prompt section
     examples = [
         "",
         "If a train travels 120 km in 1.5 hours, then 80 km in 45 minutes, what's its average speed?",
@@ -86,7 +129,6 @@ def main():
         "Explain quantum entanglement in simple terms.",
         "How would you design a recommendation system?",
     ]
-
     selected_from_dropdown = st.selectbox("Examples:", examples)
     prefill = selected_from_dropdown if selected_from_dropdown else ""
 
@@ -114,23 +156,24 @@ def main():
         with st.spinner(f"Thinking with {st.session_state.model_name}..."):
             res = call_model(msgs, model_name=st.session_state.model_name, temperature=temperature, effort=effort)
 
+        # Mark interaction time for idle timer
+        import time as _t
+        st.session_state.last_interaction_ts = float(_t.time())
+
         if res["success"]:
             st.session_state.history.append({"role": "user", "content": question})
             st.session_state.history.append({"role": "assistant", "content": res["content"]})
 
-            # Metrics
             col1, col2 = st.columns([3, 1])
             with col1:
                 if reasoning_mode == "Auto-detect":
                     parsed = parse_reasoning_response(res["content"])
-                    # Show reasoning only if something meaningful detected
                     if parsed["reasoning"] and parsed["reasoning"].strip():
                         st.markdown("### Reasoning (detected)")
                         st.markdown(f"<div class='reasoning-box'>{parsed['reasoning']}</div>", unsafe_allow_html=True)
                     st.markdown("### Answer")
                     st.markdown(f"<div class='answer-box'>{parsed['answer']}</div>", unsafe_allow_html=True)
                 else:
-                    # Always hide reasoning
                     st.markdown("### Answer")
                     st.markdown(f"<div class='answer-box'>{res['content']}</div>", unsafe_allow_html=True)
             with col2:
@@ -161,6 +204,7 @@ def main():
                 st.markdown(f"<div class='chat-message assistant-message'><strong>Assistant:</strong> {content}</div>", unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("<div style='text-align:center'><strong>Powered locally via Ollama</strong></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center'><strong>Powered locally via Ollama • Auto-stop enabled</strong></div>", unsafe_allow_html=True)
+
 if __name__ == "__main__":
     main()
