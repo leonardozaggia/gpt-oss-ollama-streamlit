@@ -142,13 +142,13 @@ Enjoy building with GPT-OSS!
 9. Cluster Usage Examples
 ----------------------------------------------------------------------
 
-Local:
-    python main_cluster.py -- echo "hello"
-
-Cluster non-interactive:
-    python main_cluster.py --cluster rosa --partition rosa.p --time 01:00:00 -- python main.py --foo bar
-
-Cluster interactive:
+First activate an interactive job:
     python main_cluster.py --cluster rosa --interactive
-    
+
+From a second terminal create a tunneling:
+    ssh -L 8501:mpcb023:8501 maku1542@rosa.hpc.uni-oldenburg.de
+
+Lastly, run the app from the interactive terminal:
+    streamlit run main.py
+
 """

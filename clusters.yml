@@ -7,6 +7,7 @@ clusters:
     default_ntasks: 1
     default_cpus_per_task: 4
     default_time: "02:00:00"
+    workdir: ~/cluster_repos/local-llms-app   # <- your actual repo path on the cluster
     account: ""
     mem: ""
     gpus: ""
