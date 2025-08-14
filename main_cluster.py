@@ -12,7 +12,13 @@ import subprocess
 import sys
 from typing import List, Optional, Dict
 
-from hpc import load_config, open_interactive_shell, remote_run, open_interactive_app
+from hpc import (
+    load_config,
+    open_interactive_shell,
+    remote_run,
+    open_interactive_app,
+    submit_app_job,
+)
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run locally or on an HPC cluster (Slurm).", allow_abbrev=False)
@@ -20,6 +26,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--interactive", action="store_true", help="Open an interactive compute shell via Slurm.")
     p.add_argument("--interactive-app", action="store_true",
                    help="Allocate a job, start ollama (tmux/nohup), optionally pull a model, and run Streamlit.")
+    p.add_argument("--submit-app", action="store_true",
+                   help="Submit a non-interactive Slurm job that launches ollama and Streamlit.")
     p.add_argument("--partition", help="Slurm partition override (e.g., rosa.p)")
     p.add_argument("--ntasks", type=int, help="Slurm --ntasks override")
     p.add_argument("--cpus-per-task", type=int, help="Slurm --cpus-per-task override")
@@ -27,7 +35,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--account", help="Slurm --account override")
     p.add_argument("--mem", help="Slurm memory (e.g., 8G)")
     p.add_argument("--gpus", help="Slurm GPUs (e.g., gpu:1)")
-    p.add_argument("--port", type=int, default=8501, help="Port for Streamlit when using --interactive-app (default: 8501)")
+    p.add_argument("--port", type=int, default=8501,
+                   help="Port for Streamlit when using --interactive-app/--submit-app (default: 8501)")
     p.add_argument("--model", type=str, default="", help="Optional Ollama model to ensure present (e.g., llama3.1:8b)")
     p.add_argument("--app", type=str, default="main.py", help="Python file for Streamlit (default: main.py)")
     p.add_argument("--workdir", type=str, default="", help="Remote working directory to cd into before launching app")
@@ -78,8 +87,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Prefer CLI --workdir, else config 'workdir', else None
     workdir = args.workdir or cfg.get("workdir") or None
 
+    if args.interactive_app and args.submit_app:
+        print("Choose only one of --interactive-app or --submit-app", file=sys.stderr)
+        return 2
+
     if args.interactive_app:
         return open_interactive_app(cfg, overrides=overrides, port=args.port, model=(args.model or None), app_py=args.app, workdir=workdir)
+
+    if args.submit_app:
+        return submit_app_job(cfg, overrides=overrides, port=args.port, model=(args.model or None), app_py=args.app, workdir=workdir)
 
     if args.interactive:
         return open_interactive_shell(cfg, overrides=overrides)
