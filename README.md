@@ -138,17 +138,5 @@ privacy, and transparency. You can easily extend the app by modifying
 
 Enjoy building with GPT-OSS!
 
-----------------------------------------------------------------------
-9. Cluster Usage Examples
-----------------------------------------------------------------------
-
-First activate an interactive job:
-    python main_cluster.py --cluster rosa --interactive
-
-From a second terminal create a tunneling:
-    ssh -L 8501:mpcb023:8501 maku1542@rosa.hpc.uni-oldenburg.de
-
-Lastly, run the app from the interactive terminal:
-    streamlit run main.py
 
 """
