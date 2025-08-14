@@ -37,29 +37,34 @@ def call_model(
     else:
         temp, top_p = temperature, 0.95
 
-    try:
+        try:
         start_time = time.time()
         options = {"temperature": float(temp), "top_p": float(top_p)}
-        response = ollama.chat(model=model_name, messages=messages, options=options)
-        dt = time.time() - start_time
 
-        # ``ollama.chat`` may return either a ``dict`` (older versions) or a
-        # ``ChatResponse`` object.  Extract the assistant message content in a
-        # version‑agnostic way.
-        content = ""
-        if isinstance(response, dict):
-            # Older client versions
-            content = response.get("message", {}).get("content", "")
-        else:
-            message = getattr(response, "message", None)
-            if message is not None:
-                if isinstance(message, dict):
-                    content = message.get("content", "")
+        # Stream tokens so the connection stays active even on very slow
+        # hardware (e.g., CPU‑only HPC nodes).  Without streaming the request
+        # may appear to hang and eventually time out on long generations.
+        stream = ollama.chat(
+            model=model_name, messages=messages, options=options, stream=True
+        )
+
+        content_parts: List[str] = []
+        for chunk in stream:
+            if isinstance(chunk, dict):
+                part = chunk.get("message", {}).get("content", "")
+            else:
+                msg = getattr(chunk, "message", None)
+                if isinstance(msg, dict):
+                    part = msg.get("content", "")
                 else:
-                    # ``Message`` models expose ``content`` attribute
-                    content = getattr(message, "content", "")
+                    part = getattr(msg, "content", "")
+            if part:
+                content_parts.append(part)
+
+        dt = time.time() - start_time
+        content = "".join(content_parts)
         if not content:
-            content = str(response)
+            content = str(chunk) if 'chunk' in locals() else ""
 
         return {
             "content": content,
@@ -105,4 +110,5 @@ def parse_reasoning_response(content: str) -> Dict[str, str]:
                 break
 
     return {"reasoning": reasoning if reasoning else "", "answer": answer if answer else content}
+
 
