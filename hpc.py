@@ -191,3 +191,79 @@ exec bash
 """
     remote_cmd = _prepend_pre_commands(cfg.get('pre_commands')) + f"{srun} bash -lc {shlex.quote(bootstrap)}"
     return ssh_run(cfg["host"], cfg["user"], remote_cmd, identity_file=cfg.get("ssh_key"), pty=True)
+
+
+def submit_app_job(cfg: Dict[str, Any],
+                   overrides: Optional[Dict[str, Any]] = None,
+                   port: int = 8501,
+                   model: Optional[str] = None,
+                   app_py: str = "main.py",
+                   workdir: Optional[str] = None) -> int:
+    """Submit a non-interactive Slurm job that launches Ollama and a Streamlit app.
+
+    The job script will:
+      - run any configured ``pre_commands``
+      - optionally ``cd`` into ``workdir``
+      - start ``ollama serve``
+      - ensure an Ollama model is available
+      - run ``streamlit run`` on the specified ``port``
+
+    After submission the job id and basic tunnelling instructions are printed
+    to stdout. Users can then set up an SSH tunnel once the job is running.
+    """
+
+    overrides = overrides or {}
+    part = shlex.quote(overrides.get("partition") or cfg["default_partition"])
+    ntasks = int(overrides.get("ntasks") or cfg["default_ntasks"])
+    cpus = int(overrides.get("cpus_per_task") or cfg["default_cpus_per_task"])
+    account = overrides.get("account") or cfg.get("account") or ""
+    timel = overrides.get("time") or cfg.get("default_time") or ""
+    mem = overrides.get("mem") or cfg.get("mem") or ""
+    gpus = overrides.get("gpus") or cfg.get("gpus") or ""
+
+    header = [f"#SBATCH -p {part}", f"#SBATCH --ntasks={ntasks}", f"#SBATCH --cpus-per-task={cpus}"]
+    if account:
+        header.append(f"#SBATCH --account={account}")
+    if timel:
+        header.append(f"#SBATCH --time={timel}")
+    if mem:
+        header.append(f"#SBATCH --mem={mem}")
+    if gpus:
+        header.append(f"#SBATCH --gpus={gpus}")
+
+    pre_cmds = "\n".join(cfg.get("pre_commands") or [])
+    cd_line = f"cd {shlex.quote(workdir)}" if workdir else ""
+
+    ensure_model = ""
+    if model:
+        ensure_model = f"""
+if ! ollama show {shlex.quote(model)} >/dev/null 2>&1; then
+  ollama pull {shlex.quote(model)}
+fi
+"""
+
+    script = f"""#!/bin/bash
+{os.linesep.join(header)}
+set -e
+{pre_cmds}
+{cd_line}
+export OLLAMA_HOST=http://127.0.0.1:11434
+ollama serve &
+sleep 2
+{ensure_model}
+streamlit run {shlex.quote(app_py)} --server.port {port} --server.address 0.0.0.0 --server.headless true
+"""
+
+    remote_cmd = f"""
+JOBFILE=$(mktemp streamlit_app.XXXXXX.sh)
+cat <<'EOF' > $JOBFILE
+{script}
+EOF
+jid=$(sbatch --parsable "$JOBFILE")
+echo "Submitted job $jid"
+echo "Check status with: squeue -j $jid"
+echo "Once RUNNING, find node with: squeue -h -j $jid -o %R"
+echo "Then tunnel locally: ssh -L {port}:<node>:{port} {cfg['user']}@{cfg['host']}"
+"""
+
+    return ssh_run(cfg["host"], cfg["user"], remote_cmd, identity_file=cfg.get("ssh_key"), pty=False)

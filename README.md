@@ -114,7 +114,21 @@ This will:
     - Interact with GPT-OSS fully offline after first model pull
 
 ----------------------------------------------------------------------
-7. Troubleshooting
+7. Running on a Cluster
+----------------------------------------------------------------------
+
+This project includes helper scripts to launch the Streamlit interface on a
+Slurm cluster. After configuring your cluster in ``clusters.yml`` you can
+submit a job from your local machine:
+
+    python main_cluster.py --cluster <name> --submit-app --model llama3.1:8b
+
+The command prints the Slurm job ID and instructions for creating an SSH
+tunnel once the job is running. For an interactive session instead, replace
+``--submit-app`` with ``--interactive-app``.
+
+----------------------------------------------------------------------
+8. Troubleshooting
 ----------------------------------------------------------------------
 
 - If `ollama` is not found:
@@ -125,7 +139,7 @@ This will:
     - It may be due to network speed; model files are large (GBs).
 
 ----------------------------------------------------------------------
-8. Conclusion
+9. Conclusion
 ----------------------------------------------------------------------
 
 After completing these steps, you can run GPT-OSS locally with full control,
