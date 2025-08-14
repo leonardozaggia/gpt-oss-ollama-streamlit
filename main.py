@@ -55,7 +55,7 @@ def main():
 
         preset = st.selectbox(
             "Preset model",
-            ["gpt-oss:20b", "gpt-oss:120b", "llama3.1:8b", "phi3:latest", "qwen2.5:7b", "mistral:7b", "custom", "codellama:7b", "gemma:2b"],
+            ["gpt-oss:20b", "gpt-oss:120b", "llama3.1:8b", "phi3:latest", "qwen2.5:7b", "mistral:7b", "custom", "bge-m3:latest", "codellama:7b", "gemma:2b"],
             index=0,
             help="Pick a known model or choose 'custom' and type your own below."
         )
