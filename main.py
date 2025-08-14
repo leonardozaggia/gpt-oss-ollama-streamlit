@@ -95,7 +95,7 @@ def main():
     # Header
     colA, colB = st.columns([3, 2])
     with colA:
-        st.title("💬 Local Chat (Ollama)")
+        st.title("Talking Chihuahua")
         st.caption("Flexible model selection • Safe shutdown • Idle auto-stop")
     with colB:
         st.markdown(
