@@ -128,7 +128,7 @@ def open_interactive_app(cfg: Dict[str, Any],
     Allocate an interactive job, then on the compute node:
       - print the allocated node name and the exact 'ssh -L' line to run locally
       - cd into workdir (if provided), otherwise remain in $HOME
-      - start 'ollama serve' in tmux (or in background if tmux unavailable)
+      - start 'ollama serve' in foreground
       - (optionally) ensure a model is available: 'ollama pull <model>'
       - export OLLAMA_HOST and launch 'streamlit run <app_py>' on the chosen port
       - drop the user into an interactive shell (so they can ctrl+c or inspect logs)
@@ -148,20 +148,10 @@ echo ">>> On your LOCAL machine, open another terminal and run this tunnel comma
 echo "ssh -L {port}:$NODE:{port} {cfg['user']}@{cfg['host']}"
 echo
 
-# Start or ensure Ollama server
-if command -v tmux >/dev/null 2>&1; then
-  if tmux has-session -t ollama 2>/dev/null; then
-    echo "[bootstrap] tmux session 'ollama' already exists."
-  else
-    echo "[bootstrap] starting 'ollama serve' in tmux session 'ollama'..."
-    tmux new -d -s ollama 'ollama serve'
-    sleep 1
-  fi
-else
-  echo "[bootstrap] tmux not found; starting 'ollama serve' in background via nohup..."
-  nohup sh -c 'ollama serve' > ~/ollama_server.log 2>&1 &
-  sleep 1
-fi
+# Start Ollama server in foreground
+echo "[bootstrap] starting 'ollama serve' in foreground..."
+ollama serve &
+sleep 2
 
 export OLLAMA_HOST=http://127.0.0.1:11434
 
@@ -191,7 +181,6 @@ exec bash
 """
     remote_cmd = _prepend_pre_commands(cfg.get('pre_commands')) + f"{srun} bash -lc {shlex.quote(bootstrap)}"
     return ssh_run(cfg["host"], cfg["user"], remote_cmd, identity_file=cfg.get("ssh_key"), pty=True)
-
 
 def submit_app_job(cfg: Dict[str, Any],
                    overrides: Optional[Dict[str, Any]] = None,
@@ -242,8 +231,7 @@ if ! ollama show {shlex.quote(model)} >/dev/null 2>&1; then
 fi
 """
 
-    script = f"""#!/bin/bash
-{os.linesep.join(header)}
+    script = "#!/bin/bash\n" + "\n".join(header) + f"""
 set -e
 {pre_cmds}
 {cd_line}
@@ -265,5 +253,9 @@ echo "Check status with: squeue -j $jid"
 echo "Once RUNNING, find node with: squeue -h -j $jid -o %R"
 echo "Then tunnel locally: ssh -L {port}:<node>:{port} {cfg['user']}@{cfg['host']}"
 """
+
+    script_path = f"streamlit_app_{os.getpid()}.sh"
+    with open(script_path, "w", newline="\n") as f:
+        f.write(script)
 
     return ssh_run(cfg["host"], cfg["user"], remote_cmd, identity_file=cfg.get("ssh_key"), pty=False)
