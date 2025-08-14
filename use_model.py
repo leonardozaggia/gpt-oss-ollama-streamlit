@@ -37,7 +37,7 @@ def call_model(
     else:
         temp, top_p = temperature, 0.95
 
-        try:
+    try:
         start_time = time.time()
         options = {"temperature": float(temp), "top_p": float(top_p)}
 
@@ -110,5 +110,6 @@ def parse_reasoning_response(content: str) -> Dict[str, str]:
                 break
 
     return {"reasoning": reasoning if reasoning else "", "answer": answer if answer else content}
+
 
 
